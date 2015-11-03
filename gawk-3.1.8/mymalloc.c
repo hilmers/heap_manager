@@ -1,6 +1,6 @@
+#include <stddef.h>
 #include <stdio.h>
 #include <unistd.h>
-#include <string.h>
 
 #define MINIMUM_SIZE    8
 #define LIST_OBJ_SIZE   sizeof(list_obj)
