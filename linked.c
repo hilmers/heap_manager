@@ -2,10 +2,8 @@
 #include <unistd.h>
 #include <string.h>
 
-void*   malloc(size_t size);
-void    free(void* ptr);
-void*   calloc(size_t n_items, size_t size);
-void*   realloc(void* ptr, size_t size);
+#define MINIMUM_SIZE    8
+#define LIST_OBJ_SIZE   sizeof(list_obj)
 
 typedef struct list_obj list_obj;
 struct list_obj {
@@ -15,8 +13,12 @@ struct list_obj {
     char data[];
 };
 
-#define MINIMUM_SIZE    8
-#define LIST_OBJ_SIZE   sizeof(list_obj)
+list_obj*   request_memory(list_obj* end, size_t size);
+list_obj*   get_obj(void* ptr);
+void*       malloc(size_t size);
+void        free(void* ptr);
+void*       calloc(size_t n_items, size_t size);
+void*       realloc(void* ptr, size_t size);
 
 static list_obj avail = { .next = NULL };
 
@@ -30,6 +32,11 @@ list_obj* request_memory(list_obj* end, size_t size) {
     block->next = NULL;
     block->free = 0;
     return block;
+}
+
+list_obj* get_obj(void* ptr)
+{
+    return (list_obj*) ((char*) ptr - sizeof(list_obj));
 }
 
 void* malloc(size_t size) {
@@ -67,7 +74,7 @@ void free(void* ptr) {
     if (!ptr)
         return;
 
-    list_obj* block_ptr = (list_obj*) ((char*) ptr - sizeof(list_obj));
+    list_obj* block_ptr = get_obj(ptr);
     block_ptr->free = 1;
 }
 
@@ -87,7 +94,7 @@ void* realloc(void* data, size_t size)
     if (!data) 
         return malloc(size);
 
-    list_obj* old_block = (list_obj*) ((char*) data - sizeof(list_obj));
+    list_obj* old_block = get_obj(data);
 
     if(old_block->size >= size) 
         return data;
