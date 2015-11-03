@@ -36,7 +36,7 @@ list_obj* request_memory(list_obj* end, size_t size) {
 
 list_obj* get_obj(void* ptr)
 {
-    return (list_obj*) ((char*) ptr - sizeof(list_obj));
+    return (list_obj*) ((char*) ptr - LIST_OBJ_SIZE);
 }
 
 void* malloc(size_t size) {
