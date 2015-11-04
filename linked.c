@@ -2,9 +2,6 @@
 #include <stdio.h>
 #include <unistd.h>
 
-#define MINIMUM_SIZE    8
-#define LIST_OBJ_SIZE   sizeof(list_obj)
-
 typedef struct list_obj list_obj;
 struct list_obj {
     size_t size;
@@ -12,6 +9,8 @@ struct list_obj {
     list_obj* next;
     char data[];
 };
+
+#define LIST_OBJ_SIZE   sizeof(list_obj)
 
 list_obj*   request_memory(list_obj* end, size_t size);
 list_obj*   get_obj(void* ptr);
