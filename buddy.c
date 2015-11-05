@@ -86,32 +86,36 @@ void* find_mem(int k)
 
         printf("Sets vals\n");
         freelist[i - 1] = block_1;
-        remove_freeitem(i);
+        remove_freeitem(base_block);
     }
 
     return freelist[k];
 }
 
-void remove_freeitem(int k)
+void remove_freeitem(block* block_t)
 {
-    block*  new_first;
-    block*  first;
+    block*  temp;
+    int     k;
 
-    first = freelist[k];
-    new_first = first->succ;
-    /* Cut first loose */
-    new_first->pred = first->pred;
-    first->pred->succ = new_first;
-    /* Point freelist to the new item */
-    freelist[k] = new_first;
-    first->reserved = 1;
+    k = block_t->kval;
+    if (block_t == freelist[k])
+        freelist[k] = block_t->succ;
+    temp = block_t->pred;
+    temp->succ = block_t->succ;
+    block_t->succ->pred = temp;
+    block_t->reserved = 1;
+}
+
+void merge(block* block_t)
+{
+
 }
 
 void* b_malloc(size_t size) 
 {
     int     check_pool;
     int     k;
-    block*  first;
+    block*  memory;
     block*  last;
 
     if (size <= 0)
@@ -124,13 +128,13 @@ void* b_malloc(size_t size)
     }
 
     k = find_k(size + BLOCK_SIZE);
-    first = find_mem(k);
-    if (!first)
+    memory = find_mem(k);
+    if (!memory)
         return NULL;
     /* Remove space from freelist */
-    remove_freeitem(k);
+    remove_freeitem(memory);
     
-    return first;
+    return memory;
 }
 
 void b_free(void* ptr)
@@ -148,9 +152,14 @@ void b_free(void* ptr)
 
     k = block_t->kval;
     buddy = (block*) ((char*) mem_pool + (((char*) block_t - (char*) mem_pool) ^ (1 << k)));
-    if (!buddy->reserved){
-        // Buddy not reserved. Merge....
+    if(!buddy)
+        return;
 
+    if (!buddy->reserved){
+        // Let the merge begin.
+        remo
+
+        b_free(PEKAREN);
     } else {
         block_t->reserved = 0;
         /* Add last in freelist.
