@@ -16,6 +16,14 @@ struct block {
 
 #define BLOCK_SIZE  sizeof(block)
 
+int init_pool();
+int find_k(size_t size);
+block* find_mem(int k);
+void remove_freeitem(block* block_t);
+void add_freeitem(block* block_t);
+void* b_malloc(size_t size); 
+void b_free(void* ptr);
+
 static block* freelist[N + 1] = {NULL};
 static block* mem_pool = NULL;
 
@@ -26,10 +34,8 @@ int init_pool()
     if (mem_pool == (void*) -1)
         return -1;
 
-    mem_pool->reserved = 0;
     mem_pool->kval = N;
-    mem_pool->succ = mem_pool->pred = mem_pool;
-    freelist[N] = mem_pool;
+    add_freeitem(mem_pool);
 
     return 1;
 }
@@ -44,7 +50,7 @@ int find_k(size_t size)
     return k;
 }
 
-void* find_mem(int k)
+block* find_mem(int k)
 {
     int     j;
     int     i;
@@ -74,19 +80,17 @@ void* find_mem(int k)
         block_2 = (block*) ((char*) base_block + (1 << (i - 1)));
         printf("Two blocks found.\n");
 
-        block_1->reserved = 0;
-        block_2->reserved = 0;
-        printf("Blocks seems to be working.");
-
-        block_1->succ = block_1->pred = block_2;
-        block_2->succ = block_2->pred = block_1;
         printf("Assigning preds\n");
         block_1->kval = i - 1;
         block_2->kval = i - 1;
 
-        printf("Sets vals\n");
-        freelist[i - 1] = block_1;
+
         remove_freeitem(base_block);
+        printf("Removed base-block\n");
+
+        add_freeitem(block_1);
+        add_freeitem(block_2);
+        printf("Blocks added. \n");
     }
 
     return freelist[k];
@@ -98,17 +102,40 @@ void remove_freeitem(block* block_t)
     int     k;
 
     k = block_t->kval;
-    if (block_t == freelist[k])
-        freelist[k] = block_t->succ;
+    block_t->reserved = 1;
+    printf("    remove_freeitem: K found, now block reserved. k: %d\n", k);
+    if (!block_t->pred || !block_t->succ)
+        printf("    PROBLEMAS\n");
     temp = block_t->pred;
     temp->succ = block_t->succ;
     block_t->succ->pred = temp;
-    block_t->reserved = 1;
+    printf("    remove_freeitem: Block loose in linked list.\n");
+    if (block_t == freelist[k]){
+        freelist[k] = block_t->succ;
+        if (block_t == block_t->succ)
+            freelist[k] = NULL;
+    }
+    
 }
 
-void merge(block* block_t)
+void add_freeitem(block* block_t)
 {
+    int     k;
 
+    k = block_t->kval;
+    block_t->reserved = 0;
+    printf("    Add: Added in freelist for k: %d\n", k);
+    if (!freelist[k]) {
+        printf("    Add: freelist empty.\n");
+        block_t->succ = block_t->pred = block_t;
+        freelist[k] = block_t;
+    } else {
+        printf("    Add: freelist not empty\n");
+        freelist[k]->pred->succ = block_t;
+        block_t->pred = freelist[k]->pred;
+        block_t->succ = freelist[k];
+        freelist[k]->pred = block_t;
+    }
 }
 
 void* b_malloc(size_t size) 
@@ -116,7 +143,6 @@ void* b_malloc(size_t size)
     int     check_pool;
     int     k;
     block*  memory;
-    block*  last;
 
     if (size <= 0)
         return NULL;
@@ -134,7 +160,7 @@ void* b_malloc(size_t size)
     /* Remove space from freelist */
     remove_freeitem(memory);
     
-    return memory;
+    return memory + BLOCK_SIZE;
 }
 
 void b_free(void* ptr)
@@ -150,24 +176,31 @@ void b_free(void* ptr)
     if (!block_t)
         return;
 
+    printf("Free: Block found.\n");
     k = block_t->kval;
     buddy = (block*) ((char*) mem_pool + (((char*) block_t - (char*) mem_pool) ^ (1 << k)));
     if(!buddy)
         return;
 
+    printf("Free: Buddy found.\n");
     if (!buddy->reserved){
-        // Let the merge begin.
-        remo
-
-        b_free(PEKAREN);
+        printf("Free: Buddy not reserved, begin merge.\n");
+        block* start;
+        if ((char*) block_t > (char*) buddy)
+            start = buddy;
+        else
+            start = block_t;
+        printf("Free: Found start, k: %d\n", k);
+        remove_freeitem(block_t);
+        remove_freeitem(buddy);
+        printf("Free: Block & Buddy removed.\n");
+        start->kval = k + 1;
+        add_freeitem(start);
+        printf("Free: Added one level above.\n");
+        b_free(start + BLOCK_SIZE);
     } else {
-        block_t->reserved = 0;
-        /* Add last in freelist.
-        Maybe could put in more optimal position. */
-        block_t->pred = freelist[k]->pred;
-        block_t->succ = freelist[k];
-        freelist[k]->pred->succ = block_t;
-        freelist[k]->pred = block_t;
+        printf("Free: Buddy reserved, remove block from freelist.\n");
+        add_freeitem(block_t);
     }
 }
 
@@ -176,7 +209,8 @@ void b_free(void* ptr)
 int main() 
 {
     block* mem = b_malloc(127);
-    block* two = b_malloc(22);
+    //block* two = b_malloc(22);
+    b_free(mem);
     
     return 0;
 }
