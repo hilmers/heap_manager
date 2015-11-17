@@ -19,6 +19,7 @@ struct block {
 int init_pool();
 int find_k(size_t size);
 block* find_mem(int k);
+
 void remove_freeitem(block* block_t);
 void add_freeitem(block* block_t);
 void* b_malloc(size_t size); 
