@@ -248,7 +248,7 @@ int main()
     void* three = b_malloc(22);
     void* s2 = b_malloc(22);
     void* s3 = b_malloc(4000);
-    void* s4 = b_calloc(20, 20);
+    //void* s4 = b_calloc(20, 20);
     //void* s4 = b_malloc(20*20);
     printf("Done with calloc\n");
     void* s5 = b_malloc(22);
