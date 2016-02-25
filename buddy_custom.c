@@ -73,6 +73,7 @@ block* find_mem(int k)
         block_2->kval = i - 1;
         printf("before remove_freeitem\n");
         remove_freeitem(base_block);
+        printf("after remove_freeitem\n");
         add_freeitem(block_1);
         add_freeitem(block_2);
     }
@@ -99,9 +100,11 @@ void remove_freeitem(block* block_t)
     printf("temp is alive\n");
     temp->succ = block_t->succ;
     printf("found succ\n");
-    (block_t->succ)->pred = temp;
+    block_t->succ->pred = temp;
+    printf("found pred\n");
     if (k == N)
         mem_pool = NULL;
+    printf("done in remove_freeitem\n");
 }
 
 void add_freeitem(block* block_t)
@@ -155,7 +158,9 @@ void* b_malloc(size_t size)
     if (!memory)
         return NULL;
     /* Remove space from freelist */
+    printf("in malloc before remove_freeitem\n");
     remove_freeitem(memory);
+    printf("in malloc after remove_freeitem\n");
     return (char*) memory + BLOCK_SIZE;
 }
 
@@ -188,8 +193,10 @@ void b_free(void* ptr)
         else
             start = block_t;
 
+        printf("in free before remove_freeitem\n");
         remove_freeitem(block_t);
         remove_freeitem(buddy);
+        printf("in free after remove_freeitem\n");
 
         start->kval = k + 1;
         add_freeitem(start);
@@ -244,23 +251,31 @@ void* b_realloc(void* memory, size_t size)
 int main() 
 {
     void* mem = b_malloc(127);
+    printf("Done with malloc 1\n");
     void* two = b_malloc(22);
+    printf("Done with malloc 2\n");
     void* three = b_malloc(22);
+    printf("Done with malloc 3\n");
     void* s2 = b_malloc(22);
+    printf("Done with malloc 4\n");
     void* s3 = b_malloc(4000);
-    //void* s4 = b_calloc(20, 20);
-    //void* s4 = b_malloc(20*20);
+    printf("Done with malloc 5\n");
+    void* s4 = b_calloc(20, 20);
     printf("Done with calloc\n");
+    //void* s4 = b_malloc(20*20);
+    //printf("Done with malloc 5.5\n");
     void* s5 = b_malloc(22);
     printf("Done with malloc after calloc\n");
     void* s6 = b_malloc(600);
+    printf("Done with malloc 6\n");
     void* s7 = b_malloc(22);
+    printf("Done with malloc 7\n");
     void* s8 = b_malloc(22);
 
     printf("Malloced both\n");
     b_free(two);
     printf("22 freed\n");
-    b_realloc(mem, 400);
+    //b_realloc(mem, 400);
     printf("127 freed\n");
     b_free(three);
     b_free(s2);
