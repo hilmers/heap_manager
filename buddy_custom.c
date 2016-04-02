@@ -3,290 +3,226 @@
 #include <unistd.h>
 #include <string.h>
 
-#define N (12)
+#define N (26)
 #define POOL_SIZE (1 << N) // Equal to 2^N.
+#define BLOCK_SIZE  sizeof(block_t)
 
-typedef struct block block;
-struct block {
-    unsigned reserved:1; /* one if reserved. */
-    char kval; /* current value of K. */
-    block* succ; /* successor block in list. */
-    block* pred; /* predecessor block in list. */
+typedef struct block_t block_t;
+struct block_t {
+    unsigned    reserved:1; /* one if reserved. */
+    char        kval; /* current value of K. */
+    block_t*    succ; /* successor block_t in list. */
+    char        data[];
 };
 
-#define BLOCK_SIZE  sizeof(block)
-
 int init_pool();
-int find_k(size_t size);
-block* find_mem(int k);
-
-void remove_freeitem(block* block_t);
-void add_freeitem(block* block_t);
 void* b_malloc(size_t size); 
 void b_free(void* ptr);
+void pop_block(block_t* block, int k);
+//block_t* get_block(size_t size);
+void split_block(int k);
+void merge_block(block_t* block);
+block_t* get_block(int k);
 
-static block* freelist[N + 1] = {NULL};
-static block* mem_pool = NULL;
+static block_t* freelist[N + 1] = {NULL};
+static char* mem_pool;
 
 int init_pool() 
 {
     mem_pool = sbrk(POOL_SIZE);
+
     if (mem_pool == (void*) -1)
         return -1;
-    mem_pool->kval = N;
-    add_freeitem(mem_pool);
+
+    freelist[N] = mem_pool;
+    block_t* init_mem = (block_t*) mem_pool;
+    init_mem->reserved = 0;
+    init_mem->kval = N;
+    init_mem->succ = NULL;
     return 1;
 }
 
-int find_k(size_t size)
-{
-    int k = 0;
-    while(size > (1 << k))
-        k++;
-    return k;
-}
 
-block* find_mem(int k)
-{
-    int     j;
-    int     i;
-    block*  first;
-    block*  base_block;
-    block*  block_1;
-    block*  block_2;
-    printf("find mem entered\n");
-    j = k;
-    while (!freelist[j] && j <= N)
-        j++;
-    printf("found great j: %d\n", j);
-    first = freelist[j];
-    if (!first)
-        return NULL;
-    /* First J with available block found */
-    /* Time for splitting */
-    for (i = j; i >= k; i--){
-        printf("split for i: %d\n", i);
-        base_block = freelist[i];
-        block_1 = (block*) base_block;
-        block_2 = (block*) ((char*) base_block + (1 << (i - 1)));
-        block_1->kval = i - 1;
-        block_2->kval = i - 1;
-        printf("before remove_freeitem\n");
-        remove_freeitem(base_block);
-        printf("after remove_freeitem\n");
-        add_freeitem(block_1);
-        add_freeitem(block_2);
-    }
-    return freelist[k];
-}
-
-void remove_freeitem(block* block_t)
-{
-    block*  temp;
-    int     k;
-    k = block_t->kval;
-    block_t->reserved = 1;
-    if (block_t == block_t->succ) {
-        printf("freelist[%d] = null\n", k);
-        freelist[k] = NULL;
-        return;
-    }
-    if (block_t == freelist[k]){
-        printf("freelist[%d] == block_t\n", k);
-        freelist[k] = block_t->succ;
-    }
-    printf("set reserved\n");
-    temp = block_t->pred;
-    printf("temp is alive\n");
-    temp->succ = block_t->succ;
-    printf("found succ\n");
-    block_t->succ->pred = temp;
-    printf("found pred\n");
-    if (k == N)
-        mem_pool = NULL;
-    printf("done in remove_freeitem\n");
-}
-
-void add_freeitem(block* block_t)
-{
-    int     k;
-    block*  first;
-
-    printf("Entered add_freeitem\n");
-
-    k = block_t->kval;
-    block_t->reserved = 0;
-    if (!freelist[k]) {
-        /* Freelist empty for that k */
-        block_t->succ = block_t->pred = block_t;
-        freelist[k] = block_t;
-    } else {
-        /* Add block_t first in circular freelist */
-        printf("freelist[%d] not empty\n", k);
-        first = freelist[k];
-        block_t->succ = first;
-        block_t->pred = first->pred;
-        printf("block now in place\n");
-        (first->pred)->succ = block_t;
-        printf("preds succ now set\n");
-        first->pred = block_t;
-        freelist[k] = block_t;
-        printf("done i add_freeitem\n");
-    }
-}
 
 void* b_malloc(size_t size) 
 {
-    int     check_pool;
-    int     k;
-    block*  memory;
+    int         k;
+    block_t*    ptr;
 
     if (size <= 0)
         return NULL;
 
-    if (!mem_pool) {
-        printf("Create new mem_pool\n");
-        check_pool = init_pool();
-        if (!check_pool)
+    if (mem_pool == NULL) {
+        if (!init_pool())
             return NULL;
     }
-    printf("Trying to find k and memory\n");
-    k = find_k(size + BLOCK_SIZE);
-    printf("k found-> %d\n", k);
-    memory = find_mem(k);
-    printf("Memory in malloc found\n");
-    if (!memory)
+
+    k = 0;
+    while ((1 << k) < (size + BLOCK_SIZE))
+        k++;
+
+    ptr = get_block(k);
+    if (ptr == NULL)
         return NULL;
-    /* Remove space from freelist */
-    printf("in malloc before remove_freeitem\n");
-    remove_freeitem(memory);
-    printf("in malloc after remove_freeitem\n");
-    return (char*) memory + BLOCK_SIZE;
+
+    return ptr->data;
 }
 
 void b_free(void* ptr)
 {
-    block*  block_t;
-    block*  buddy;
-    int     k;
+    block_t*    block;
+    int         k;
+    char*       char_ptr;
+
+    printf("Enter free\n");
+    char_ptr = (char*) ptr - BLOCK_SIZE;
+    if (char_ptr == NULL)
+        return;
+
+    block = (block_t*) char_ptr;
+    k = block->kval;
+    printf("Past block finder k = %d\n", k);
+    if (!block->reserved)
+        return;
+
+    block->reserved = 0;
+    block->succ = freelist[k];
+    freelist[k] = block;
+
+    // Dubbelkolla det här.
+    merge_block(block);
+
+
+}
+
+void merge_block(block_t* block)
+{
+    block_t*    buddy;
+    block_t*    start;
+    int         k;
+
+    k = block->kval;
+    //printf("    block->kval: %d\n", block->kval);
+    buddy = (char*) mem_pool + (((char*) block - (char*) mem_pool) ^ (1 << k));
+
+    if (buddy->reserved || (buddy->kval != k)){
+        printf("Hmm, buddy->reserved = %d, buddy->kval = %d, k = %d\n", buddy->reserved, buddy->kval, k);
+        return;
+    }
+
+    if ((char*) block > (char*) buddy)
+        start = buddy;
+    else
+        start = block;
+
+    pop_block(buddy, k);
+    pop_block(block, k);
+
+    start->kval = k + 1;
+    start->succ = freelist[k + 1];
+    freelist[k + 1] = start;
     
-    if (!mem_pool)
-        return;
+    block->reserved = 0;
+    buddy->reserved = 0;
 
-    block_t = (block*) ((char*) ptr - BLOCK_SIZE);
-    if (!block_t)
-        return;
 
-    k = block_t->kval;
-    /* Base case for checking if we reached top. E.g. memory completly empty */
-    if (k >= N)
-        return;
-
-    buddy = (block*) ((char*) mem_pool + (((char*) block_t - (char*) mem_pool) ^ (1 << k)));
-    if(!buddy)
-        return;
-
-    if (!buddy->reserved){
-        block* start;
-        if ((char*) block_t > (char*) buddy)
-            start = buddy;
-        else
-            start = block_t;
-
-        printf("in free before remove_freeitem\n");
-        remove_freeitem(block_t);
-        remove_freeitem(buddy);
-        printf("in free after remove_freeitem\n");
-
-        start->kval = k + 1;
-        add_freeitem(start);
-        /* Recursivly merge blocks */
-        b_free((char*) start + BLOCK_SIZE);
-    } else {
-        add_freeitem(block_t);
+    if (k < N - 1) {
+        merge_block(start);
     }
 }
 
-void* b_calloc(size_t n, size_t size)
+void pop_block(block_t* block, int k)
 {
-    size_t  tot_size;
-    void*   memory;
-
-    printf("Enters calloc\n");
-    tot_size = n * size;
-    memory = b_malloc(tot_size);
-
-    if (!memory)
-        return NULL;
-    printf("Found memory\n");
-
-    memset(memory, 0, tot_size);
-    printf("Memset went fine. \n");
-    return memory;
+    block_t* p = freelist[k];
+    if (p == block) {
+        freelist[k] = p->succ;
+    } else {
+        while (p->succ != block)
+            p = p->succ;
+        p->succ = block->succ;
+        // EVENTUELLT KOLLA NULL 
+    }
 }
 
-void* b_realloc(void* memory, size_t size)
+block_t* get_block(int k)
 {
-    block*  old_block;
-    void*   new_memory;
-    int     k;
+    int         i;
+    int         j;
+    block_t*    block;
 
-    if (!memory)
-        return b_malloc(size);
+    j = k;
 
-    old_block = (block*) ((char*) memory - BLOCK_SIZE);
-    k = find_k(size);
-    if (old_block->kval >= k)
-        return memory;
+    while (!freelist[j] && j <=N)
+        j++;
 
-    new_memory = b_malloc(size);
-    if (!new_memory)
-        return NULL;
+    //printf("Found j: %d\n", j);
+    for (i = j; i > k; i--) {
+        split_block(i);
+    }
 
-    memcpy(new_memory, memory, 1 << old_block->kval);
-    b_free(memory);
-    return new_memory;
+    block = freelist[k];
+    freelist[k] = freelist[k]->succ;
+    block->succ = NULL;
+    block->reserved = 1;
+    return block;
 }
+
+/*block_t* get_block(size_t size)
+{
+    int         k;
+    int         j;
+    block_t*    block;
+
+    k = get_k(size + BLOCK_SIZE);
+    if (freelist[k] == NULL)
+        split_block(k + 1);
+
+    block = freelist[k];
+    freelist[k] = freelist[k]->succ;
+    block->succ = NULL;
+    block->reserved = 1;
+
+    return block;
+}*/
+
+
+
+int get_k(size_t size) 
+{
+    int k = 0;
+
+    while (size > (1 << k))
+        k++;
+    return k;
+}
+
+void split_block(int k)
+{
+    block_t    *base, *sp1, *sp2;
+    char*       ptr;       
+
+    base = freelist[k];
+    freelist[k] = freelist[k]->succ;
+
+    ptr = ((char*) base) + (1 << (k - 1));
+    sp1 = base;
+    sp2 = (block_t*) ptr;
+
+    freelist[k - 1] = sp1;
+
+    sp1->succ = sp2;
+    sp2->succ = NULL;
+
+    sp1->kval = k - 1;
+    sp2->kval = k - 1;
+    //printf("    sp1->kval: %d\n", sp1->kval);
+    //printf("    sp2->kval: %d\n", sp2->kval);
+}
+
 
 int main() 
 {
-    void* mem = b_malloc(127);
-    printf("Done with malloc 1\n");
-    void* two = b_malloc(22);
-    printf("Done with malloc 2\n");
-    void* three = b_malloc(22);
-    printf("Done with malloc 3\n");
-    void* s2 = b_malloc(22);
-    printf("Done with malloc 4\n");
-    void* s3 = b_malloc(4000);
-    printf("Done with malloc 5\n");
-    void* s4 = b_calloc(20, 20);
-    printf("Done with calloc\n");
-    //void* s4 = b_malloc(20*20);
-    //printf("Done with malloc 5.5\n");
-    void* s5 = b_malloc(22);
-    printf("Done with malloc after calloc\n");
-    void* s6 = b_malloc(600);
-    printf("Done with malloc 6\n");
-    void* s7 = b_malloc(22);
-    printf("Done with malloc 7\n");
-    void* s8 = b_malloc(22);
-
-    printf("Malloced both\n");
-    b_free(two);
-    printf("22 freed\n");
-    //b_realloc(mem, 400);
-    printf("127 freed\n");
-    b_free(three);
-    b_free(s2);
-    b_free(s3);
-    b_free(s4);
-    b_free(s5);
-    b_free(s6);
-    b_free(s7);
-    b_free(s8);
-    b_free(mem);
-
-    
+    char* ptr1 = b_malloc(450);
+    b_free(ptr1);
     return 0;
 }
