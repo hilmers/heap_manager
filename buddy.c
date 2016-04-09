@@ -3,137 +3,122 @@
 #include <unistd.h>
 #include <string.h>
 
-#define N (24)
+#define N (26)
 #define POOL_SIZE (1 << N) // Equal to 2^N.
+#define BLOCK_SIZE  sizeof(block_t)
 
-typedef struct block block;
-struct block {
-    unsigned reserved:1; /* one if reserved. */
-    char kval; /* current value of K. */
-    block* succ; /* successor block in list. */
-    block* pred; /* predecessor block in list. */
+typedef struct block_t block_t;
+
+struct block_t {
+    unsigned    reserved:1; /* one if reserved. */
+    char        k; /* current value of K. */
+    block_t*    succ; /* successor block_t in list. */
+    char        data[];
 };
 
-#define BLOCK_SIZE  sizeof(block)
+static block_t* freelist[N + 1] = {0};
+static char* mem_pool;
 
-int init_pool();
-int find_k(size_t size);
-block* find_mem(int k);
-void remove_freeitem(block* block_t);
-void add_freeitem(block* block_t);
-void* malloc(size_t size); 
-void* calloc(size_t n, size_t size);
-void* realloc(void* memory, size_t size);
-void free(void* ptr);
 
-static block* freelist[N + 1] = {NULL};
-static block* mem_pool = NULL;
 
-int init_pool() 
+block_t *split_blocks(size_t k)
 {
-    mem_pool = sbrk(POOL_SIZE);
-    if (mem_pool == (void*) -1)
-        return -1;
-    mem_pool->kval = N;
-    add_freeitem(mem_pool);
-    return 1;
-}
+    size_t      i;
+    size_t      j;
+    block_t     *block, *buddy;
 
-int find_k(size_t size)
-{
-    int k = 0;
-    while(size > (1 << k))
-        k++;
-    return k;
-}
+    j = k + 1;
 
-block* find_mem(int k)
-{
-    int     j;
-    int     i;
-    block*  first;
-    block*  base_block;
-    block*  block_1;
-    block*  block_2;
-
-    j = k;
-    while (!freelist[j] && j <= N)
+    while (freelist[j] == NULL) {
         j++;
-
-    first = freelist[j];
-    if (!first)
-        return NULL;
-    /* First J with available block found */
-    /* Time for splitting */
-    for (i = j; i >= k; i--){
-        base_block = freelist[i];
-        block_1 = (block*) base_block;
-        block_2 = (block*) ((char*) base_block + (1 << (i - 1)));
-        block_1->kval = i - 1;
-        block_2->kval = i - 1;
-        remove_freeitem(base_block);
-        add_freeitem(block_1);
-        add_freeitem(block_2);
     }
-    return freelist[k];
+
+    block = freelist[j];
+    freelist[j] = freelist[j]->succ; // Resten är NULL so far ju.
+
+    for (i = j - 1; i > k; i--) {
+        block->k -= 1;
+        buddy = (void *)(mem_pool + (((char *)block - mem_pool) ^ (1 << i)));
+        buddy->k = i;
+        buddy->reserved = 0;
+        buddy->succ = freelist[i];
+        freelist[i] = buddy;
+    }
+
+    block->reserved = 1;
+    return block;
 }
 
-void remove_freeitem(block* block_t)
+void *malloc(size_t size)
 {
-    block*  temp;
-    int     k;
+    size_t      k;
+    block_t     *ptr;
+    //fprintf(stderr, "malloc with size: %d\n", size);
 
-    k = block_t->kval;
-    block_t->reserved = 1;
-    temp = block_t->pred;
-    temp->succ = block_t->succ;
-    block_t->succ->pred = temp;
-    if (block_t == freelist[k]){
-        freelist[k] = block_t->succ;
-        if (block_t == block_t->succ)
-            freelist[k] = NULL;
-    }
-}
+    if (mem_pool == NULL) {
+        mem_pool = sbrk(POOL_SIZE);
 
-void add_freeitem(block* block_t)
-{
-    int     k;
-
-    k = block_t->kval;
-    block_t->reserved = 0;
-    if (!freelist[k]) {
-        block_t->succ = block_t->pred = block_t;
-        freelist[k] = block_t;
-    } else {
-        freelist[k]->pred->succ = block_t;
-        block_t->pred = freelist[k]->pred;
-        block_t->succ = freelist[k];
-        freelist[k]->pred = block_t;
-    }
-}
-
-void* malloc(size_t size) 
-{
-    int     check_pool;
-    int     k;
-    block*  memory;
-
-    if (size <= 0)
-        return NULL;
-
-    if (!mem_pool) {
-        check_pool = init_pool();
-        if (!check_pool)
+        if (mem_pool == (void*) -1)
             return NULL;
+
+        freelist[N] = mem_pool;
+        block_t *mem_first = (block_t*) mem_pool;
+        mem_first->reserved = 0;
+        mem_first->k = N;
+        mem_first->succ = NULL;    
     }
 
-    k = find_k(size + BLOCK_SIZE);
-    memory = find_mem(k);
-    if (!memory)
-        return NULL;
-    /* Remove space from freelist */
-    remove_freeitem(memory);
-    return (char*) memory + sizeof(block);
+    k = 0;
+    while ((1 << k) < (size + BLOCK_SIZE)) {
+        k++;
+    }
+
+    ptr = split_blocks(k);
+    return ptr->data;
+
+}
+
+void pop_block(block_t* block)
+{
+    block_t* p = freelist[block->k];
+    if (p == block) {
+        freelist[block->k] = p->succ;
+        return;
+    } 
+    while (p->succ != block){
+        p = p->succ;
+    }
+    p->succ = block->succ; 
+}
+
+
+void free(void *ptr)
+{
+    block_t     *block, *buddy;
+    int         k;
+
+    if (ptr == NULL)
+        return;
+
+    block = (char*) ptr - BLOCK_SIZE;
+    buddy = (char *)(mem_pool + (((char *)block - mem_pool) ^ (1 << block->k)));
+    //fprintf(stderr, "free with k: %d\n", block->k);
+    block->reserved = 0;
+
+    while (block->k < N && buddy->reserved == 0 && buddy->k == block->k) {
+        pop_block(buddy);
+        
+        if (block > buddy) {
+            block_t *temp = block;
+            block = buddy;
+            buddy = temp;
+        }
+
+        block->k += 1;
+        buddy = (char *)(mem_pool + (((char *)block - mem_pool) ^ (1 << block->k)));
+    }
+    block->succ = freelist[block->k];
+    freelist[block->k] = block;
 }
 
 void* calloc(size_t n, size_t size)
@@ -151,64 +136,27 @@ void* calloc(size_t n, size_t size)
 
 void* realloc(void* memory, size_t size)
 {
-    block*  old_block;
+    block_t*  old_block;
     void*   new_memory;
     int     k;
 
     if (!memory)
         return malloc(size);
 
-    old_block = (block*) ((char*) memory - BLOCK_SIZE);
-    k = find_k(size);
-    if (old_block->kval >= k)
+    old_block = (block_t*) ((char*) memory - BLOCK_SIZE);
+    
+    k = 0;
+    while ((1 << k) < (size + BLOCK_SIZE))
+        k++;
+
+    if (old_block->k >= k)
         return memory;
 
     new_memory = malloc(size);
     if (!new_memory)
         return NULL;
 
-    memcpy(new_memory, memory, 1 << old_block->kval);
+    memcpy(new_memory, memory, 1 << old_block->k);
     free(memory);
     return new_memory;
-}
-
-void free(void* ptr)
-{
-    block*  block_t;
-    block*  buddy;
-    int     k;
-    
-    if (!mem_pool)
-        return;
-
-    block_t = (block*) ((char*) ptr - BLOCK_SIZE);
-    if (!block_t)
-        return;
-
-    k = block_t->kval;
-    /* Base case for checking if we reached top. E.g. memory completly empty */
-    if (k >= N)
-        return;
-
-    buddy = (block*) ((char*) mem_pool + (((char*) block_t - (char*) mem_pool) ^ (1 << k)));
-    if(!buddy)
-        return;
-
-    if (!buddy->reserved){
-        block* start;
-        if ((char*) block_t > (char*) buddy)
-            start = buddy;
-        else
-            start = block_t;
-
-        remove_freeitem(block_t);
-        remove_freeitem(buddy);
-
-        start->kval = k + 1;
-        add_freeitem(start);
-        /* Recursivly merge blocks */
-        free((char*) start + BLOCK_SIZE);
-    } else {
-        add_freeitem(block_t);
-    }
 }
